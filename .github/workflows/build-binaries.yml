@@ -132,11 +132,17 @@ jobs:
           merge-multiple: false
           path: dist/
 
-      - name: Flatten artifacts
+      - name: Stage release assets
         run: |
           mkdir -p release
-          find dist -type f \( -name proot -o -name 'libtalloc.so*' -o -name '*.tar.gz' \) -exec cp {} release/ \;
-          ls -lh release/
+          find dist -type f \( -name proot -o -name 'libtalloc.so*' -o -name '*.tar.gz' \) | while read -r f; do
+            rel="${f#dist/}"
+            dir="release/$(dirname "$rel")"
+            mkdir -p "$dir"
+            cp "$f" "$dir/"
+          done
+          find release -type f -ls
+          ls -lh release/*/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
