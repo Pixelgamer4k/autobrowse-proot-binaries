@@ -13,43 +13,16 @@ permissions:
 
 env:
   ALPINE_VERSION: 3.19.0
+  TERMUX_PROOT_AARCH64: pool/main/p/proot/proot_5.1.107.78-1_aarch64.deb
+  TERMUX_PROOT_ARM: pool/main/p/proot/proot_5.1.107.78-1_arm.deb
+  TERMUX_TALLOC_AARCH64: pool/main/libt/libtalloc/libtalloc_2.4.3_aarch64.deb
+  TERMUX_TALLOC_ARM: pool/main/libt/libtalloc/libtalloc_2.4.3_arm.deb
+  TERMUX_SHMEM_AARCH64: pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb
+  TERMUX_SHMEM_ARM: pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_arm.deb
 
 jobs:
-  build-proot:
-    name: Build proot + libtalloc for ${{ matrix.target }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [aarch64, arm]
-    steps:
-      - name: Checkout Termux packages
-        uses: actions/checkout@v4
-        with:
-          repository: termux/termux-packages
-          path: termux-packages
-
-      - name: Build proot package
-        run: |
-          cd termux-packages
-          ./scripts/run-docker.sh ./build-package.sh -a ${{ matrix.target }} -I proot
-        timeout-minutes: 120
-
-      - name: Collect packages
-        run: |
-          mkdir -p debs
-          cp termux-packages/output/*.deb debs/ || true
-          ls -la debs/
-
-      - name: Upload debs
-        uses: actions/upload-artifact@v4
-        with:
-          name: proot-deb-${{ matrix.target }}
-          path: debs/*.deb
-
   build-rootfs:
     name: Build Alpine XFCE rootfs for ${{ matrix.target }}
-    needs: build-proot
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -60,11 +33,19 @@ jobs:
           - target: arm
             alpine_arch: armv7
     steps:
-      - name: Download proot debs
-        uses: actions/download-artifact@v4
-        with:
-          name: proot-deb-${{ matrix.target }}
-          path: debs/
+      - name: Download prebuilt Termux proot + dependencies
+        run: |
+          mkdir -p debs
+          if [ "${{ matrix.target }}" = "aarch64" ]; then
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_PROOT_AARCH64}" -O debs/proot.deb
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_TALLOC_AARCH64}" -O debs/libtalloc.deb
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_SHMEM_AARCH64}" -O debs/libandroid-shmem.deb
+          else
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_PROOT_ARM}" -O debs/proot.deb
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_TALLOC_ARM}" -O debs/libtalloc.deb
+            wget -q "https://packages.termux.dev/apt/termux-main/${TERMUX_SHMEM_ARM}" -O debs/libandroid-shmem.deb
+          fi
+          ls -la debs/
 
       - name: Extract proot + shared libraries
         run: |
@@ -151,9 +132,10 @@ jobs:
           tag_name: ${{ github.event.inputs.version }}
           name: VPC Binaries ${{ github.event.inputs.version }}
           body: |
-            Statically-packaged proot binaries and Alpine XFCE rootfs for Autobrowse Android Virtual PC.
+            proot binaries and Alpine XFCE rootfs for Autobrowse Android Virtual PC.
 
-            Contents:
-            - `proot` / `libtalloc.so.2` for aarch64 and arm (built from Termux source)
+            Contents per ABI:
+            - `proot` from Termux
+            - `libtalloc.so.2` and `libandroid-shmem.so` from Termux
             - `alpine-xfce-rootfs.tar.gz` preloaded with XFCE, TigerVNC, noVNC, and websockify
           files: release/*.zip
