@@ -135,14 +135,11 @@ jobs:
       - name: Stage release assets
         run: |
           mkdir -p release
-          find dist -type f \( -name proot -o -name 'libtalloc.so*' -o -name '*.tar.gz' \) | while read -r f; do
-            rel="${f#dist/}"
-            dir="release/$(dirname "$rel")"
-            mkdir -p "$dir"
-            cp "$f" "$dir/"
+          for arch_dir in dist/*/; do
+            arch=$(basename "$arch_dir")
+            zip -j "release/vpc-${arch}.zip" "${arch_dir}"*
           done
-          find release -type f -ls
-          ls -lh release/*/
+          ls -lh release/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -155,4 +152,4 @@ jobs:
             Contents:
             - `proot` / `libtalloc.so.2` for aarch64 and arm (built from Termux source)
             - `alpine-xfce-rootfs.tar.gz` preloaded with XFCE, TigerVNC, noVNC, and websockify
-          files: release/*
+          files: release/*.zip
