@@ -38,8 +38,7 @@ jobs:
       - name: Collect packages
         run: |
           mkdir -p debs
-          cp termux-packages/output/proot_*.deb debs/ || true
-          cp termux-packages/output/libtalloc_*.deb debs/ || true
+          cp termux-packages/output/*.deb debs/ || true
           ls -la debs/
 
       - name: Upload debs
@@ -67,7 +66,7 @@ jobs:
           name: proot-deb-${{ matrix.target }}
           path: debs/
 
-      - name: Extract proot + libtalloc
+      - name: Extract proot + shared libraries
         run: |
           mkdir -p dist/${{ matrix.target }}
           for deb in debs/*.deb; do
@@ -75,7 +74,7 @@ jobs:
             dpkg-deb -x "$deb" extract/
           done
           find extract -type f -name proot -exec cp {} dist/${{ matrix.target }}/proot \;
-          find extract -type f -name 'libtalloc.so*' -exec cp {} dist/${{ matrix.target }}/ \;
+          find extract -type f \( -name 'libtalloc.so*' -o -name 'libandroid-shmem.so*' \) -exec cp {} dist/${{ matrix.target }}/ \;
           ls -la dist/${{ matrix.target }}/
 
       - name: Download Alpine minirootfs
