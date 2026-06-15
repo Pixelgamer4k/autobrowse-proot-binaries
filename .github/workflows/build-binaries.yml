@@ -1,0 +1,152 @@
+name: Build VPC Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. v1.2.1-binaries'
+        required: true
+        type: string
+
+env:
+  ALPINE_VERSION: 3.19.0
+
+jobs:
+  build-proot:
+    name: Build proot + libtalloc for ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64, arm]
+    steps:
+      - name: Checkout Termux packages
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+
+      - name: Build proot package
+        run: |
+          cd termux-packages
+          ./scripts/run-docker.sh ./build-package.sh -a ${{ matrix.target }} -I proot
+        timeout-minutes: 120
+
+      - name: Collect packages
+        run: |
+          mkdir -p debs
+          cp termux-packages/output/proot_*.deb debs/ || true
+          cp termux-packages/output/libtalloc_*.deb debs/ || true
+          ls -la debs/
+
+      - name: Upload debs
+        uses: actions/upload-artifact@v4
+        with:
+          name: proot-deb-${{ matrix.target }}
+          path: debs/*.deb
+
+  build-rootfs:
+    name: Build Alpine XFCE rootfs for ${{ matrix.target }}
+    needs: build-proot
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64
+            alpine_arch: aarch64
+          - target: arm
+            alpine_arch: armv7
+    steps:
+      - name: Download proot debs
+        uses: actions/download-artifact@v4
+        with:
+          name: proot-deb-${{ matrix.target }}
+          path: debs/
+
+      - name: Extract proot + libtalloc
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          for deb in debs/*.deb; do
+            echo "Extracting $deb"
+            dpkg-deb -x "$deb" extract/
+          done
+          find extract -type f -name proot -exec cp {} dist/${{ matrix.target }}/proot \;
+          find extract -type f -name 'libtalloc.so*' -exec cp {} dist/${{ matrix.target }}/ \;
+          ls -la dist/${{ matrix.target }}/
+
+      - name: Download Alpine minirootfs
+        run: |
+          url="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/${{ matrix.alpine_arch }}/alpine-minirootfs-${{ env.ALPINE_VERSION }}-${{ matrix.alpine_arch }}.tar.gz"
+          echo "Downloading $url"
+          wget -q "$url" -O alpine-minirootfs.tar.gz
+          mkdir -p rootfs
+          tar -xzf alpine-minirootfs.tar.gz -C rootfs
+
+      - name: Register QEMU binfmt
+        run: |
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      - name: Install XFCE desktop and VNC stack
+        run: |
+          sudo mkdir -p rootfs/proc rootfs/dev rootfs/sys
+          sudo mount -t proc proc rootfs/proc
+          sudo mount --rbind /dev rootfs/dev
+          sudo mount --rbind /sys rootfs/sys
+          sudo cp /etc/resolv.conf rootfs/etc/resolv.conf
+          sudo chroot rootfs /bin/sh -c '
+            set -e
+            apk update
+            apk add --no-cache bash xfce4 xfce4-terminal tigervnc novnc py3-websockify xterm ttf-dejavu dbus
+            mkdir -p /root/.vnc
+            printf "autobrowse" | vncpasswd -f > /root/.vnc/passwd
+            chmod 600 /root/.vnc/passwd
+            printf "%s\n" "#!/bin/sh" "unset SESSION_MANAGER" "unset DBUS_SESSION_BUS_ADDRESS" "exec startxfce4" > /root/.vnc/xstartup
+            chmod +x /root/.vnc/xstartup
+            rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /usr/share/doc/* /usr/share/man/* /usr/share/info/*
+          '
+          sudo umount rootfs/proc || true
+          sudo umount rootfs/dev || true
+          sudo umount rootfs/sys || true
+
+      - name: Package rootfs
+        run: |
+          tar -czf dist/${{ matrix.target }}/alpine-xfce-rootfs.tar.gz -C rootfs .
+          ls -lh dist/${{ matrix.target }}/
+
+      - name: Upload rootfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootfs-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+
+  release:
+    name: Create GitHub Release
+    needs: build-rootfs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rootfs-*
+          merge-multiple: false
+          path: dist/
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find dist -type f \( -name proot -o -name 'libtalloc.so*' -o -name '*.tar.gz' \) -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: VPC Binaries ${{ github.event.inputs.version }}
+          body: |
+            Statically-packaged proot binaries and Alpine XFCE rootfs for Autobrowse Android Virtual PC.
+
+            Contents:
+            - `proot` / `libtalloc.so.2` for aarch64 and arm (built from Termux source)
+            - `alpine-xfce-rootfs.tar.gz` preloaded with XFCE, TigerVNC, noVNC, and websockify
+          files: release/*
