@@ -111,8 +111,9 @@ jobs:
 
       - name: Package rootfs
         run: |
-          tar --exclude='./proc' --exclude='./dev' --exclude='./sys' --exclude='./run' \
+          sudo tar --exclude='./proc' --exclude='./dev' --exclude='./sys' --exclude='./run' \
               -czf dist/${{ matrix.target }}/alpine-xfce-rootfs.tar.gz -C rootfs .
+          sudo chown "$USER:" dist/${{ matrix.target }}/alpine-xfce-rootfs.tar.gz
           ls -lh dist/${{ matrix.target }}/
 
       - name: Upload rootfs
