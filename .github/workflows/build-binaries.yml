@@ -97,7 +97,7 @@ jobs:
           sudo chroot rootfs /bin/sh -c '
             set -e
             apk update
-            apk add --no-cache bash xfce4 xfce4-terminal tigervnc novnc py3-websockify xterm ttf-dejavu dbus
+            apk add --no-cache bash xfce4 xfce4-terminal tigervnc novnc websockify xterm ttf-dejavu dbus
             mkdir -p /root/.vnc
             printf "autobrowse" | vncpasswd -f > /root/.vnc/passwd
             chmod 600 /root/.vnc/passwd
